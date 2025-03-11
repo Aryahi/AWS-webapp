@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>To-do App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        input {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            width: 80%;
+            max-width: 300px;
+        }
+        button {
+            padding: 8px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .delete-btn {
+            background-color: #f44336;
+            margin-left: 10px;
+        }
+        .update-btn {
+            background-color: #ff9800;
+            margin-left: 10px;
+        }
+        #task-list {
+            margin-top: 20px;
+            text-align: left;
+            display: none;
+        }
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        li {
+            background: #f4f4f4;
+            margin: 5px 0;
+            padding: 10px;
+            border-radius: 3px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Create a Task</h1>
+    <div class="input-group">
+        <input type="text" id="todo-title" placeholder="Enter task title..." required>
+        <input type="text" id="todo-desc" placeholder="Enter task description..." required>
+        <button onclick="addTodo()">Add Task</button>
+    </div>
+    
+    <h2><a href="#" onclick="fetchTodos()">Get All Tasks</a></h2>
+    <div id="task-list">
+        <ul id="todo-list"></ul>
+    </div>
+    
+    <script>
+        const API_URL = "https://mmv5445yb9.execute-api.ap-south-1.amazonaws.com/dev/myTodo";
+
+        async function addTodo() {
+			const title = document.getElementById("todo-title").value.trim();
+			const description = document.getElementById("todo-desc").value.trim();
+
+		if (!title || !description) {
+			alert("Title and description are required");
+			return;
+		}
+
+		try {
+			const response = await fetch(API_URL, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ title, description })
+			});
+
+			if (!response.ok) throw new Error("Failed to add task");
+        
+			alert("Successfully added");
+			document.getElementById("todo-title").value = "";
+			document.getElementById("todo-desc").value = "";
+			// Removed fetchTodos(); so that tasks are only displayed when explicitly requested
+		} catch (error) {
+			alert("Error: " + error.message);
+		}
+	}
+
+
+        async function fetchTodos() {
+            try {
+                const response = await fetch(API_URL, { method: "GET" });
+                if (!response.ok) throw new Error("Failed to fetch tasks");
+                
+                const data = await response.json();
+                const todos = data.todos || [];
+                if (!Array.isArray(todos)) throw new Error("Invalid API response format");
+                
+                const list = document.getElementById("todo-list");
+                list.innerHTML = "";
+                todos.forEach(todo => {
+                    const li = document.createElement("li");
+                    li.textContent = `${todo.title}: ${todo.description} (Status: ${todo.status || 'Pending'})`;
+                    
+                    const deleteButton = document.createElement("button");
+                    deleteButton.textContent = "Delete";
+                    deleteButton.className = "delete-btn";
+                    deleteButton.onclick = () => deleteTodo(todo.id);
+                    
+                    const updateButton = document.createElement("button");
+                    updateButton.textContent = "Update Status";
+                    updateButton.className = "update-btn";
+                    updateButton.onclick = () => updateTodoStatus(todo.id, todo.status);
+                    
+                    li.appendChild(deleteButton);
+                    li.appendChild(updateButton);
+                    list.appendChild(li);
+                });
+                
+                document.getElementById("task-list").style.display = "block";
+            } catch (error) {
+                alert("Error: " + error.message);
+            }
+        }
+
+        async function deleteTodo(id) {
+            try {
+                const response = await fetch(`${API_URL}/${id}`, {
+                    method: "DELETE"
+                });
+                
+                if (!response.ok) throw new Error("Failed to delete task");
+                alert("Task deleted successfully");
+                fetchTodos(); // Refresh list after deleting
+            } catch (error) {
+                alert("Error: " + error.message);
+            }
+        }
+
+        async function updateTodoStatus(id, currentStatus) {
+            const newStatus = currentStatus === "Completed" ? "Pending" : "Completed";
+            try {
+                const response = await fetch(`${API_URL}/${id}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                if (!response.ok) throw new Error("Failed to update task status");
+                alert("Task status updated successfully");
+                fetchTodos(); // Refresh list after updating
+            } catch (error) {
+                alert("Error: " + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
