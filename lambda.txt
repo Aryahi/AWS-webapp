@@ -1,0 +1,139 @@
+import json
+import boto3
+import uuid
+import datetime
+
+# Initialize DynamoDB
+dynamodb = boto3.resource("dynamodb")
+TABLE_NAME = "Todos"
+table = dynamodb.Table(TABLE_NAME)
+
+def lambda_handler(event, context):
+    """Handles HTTP requests from API Gateway."""
+    
+    http_method = event.get("httpMethod")
+    path_parameters = event.get("pathParameters") or {}
+
+    # Handle empty body gracefully
+    body = {}
+    if event.get("body"):
+        try:
+            body = json.loads(event["body"])
+        except json.JSONDecodeError:
+            return response(400, {"message": "Invalid JSON format in request body"})
+    
+    try:
+        if http_method == "POST":
+            return create_todo(body)
+        elif http_method == "GET":
+            todo_id = path_parameters.get("id")
+            return get_todo_by_id(todo_id) if todo_id else get_all_todos()
+        elif http_method == "PUT":
+            todo_id = path_parameters.get("id")
+            if todo_id:
+                return update_todo(todo_id, body)
+            else:
+                return response(400, {"message": "ID parameter is required for update"})
+        elif http_method == "DELETE":
+            todo_id = path_parameters.get("id")
+            return delete_todo_by_id(todo_id)
+        else:
+            return response(405, {"message": f"Method {http_method} not allowed."})
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return response(500, {"message": "Internal Server Error", "error": str(e)})
+
+def create_todo(data):
+    """Creates a new to-do item."""
+    if "title" not in data:
+        return response(400, {"message": "Title is required"})
+    
+    todo = {
+        "id": str(uuid.uuid4()),
+        "title": data["title"],
+        "description": data.get("description", ""),
+        "status": "pending",
+        "createdAt": datetime.datetime.utcnow().isoformat(),
+        "updatedAt": datetime.datetime.utcnow().isoformat(),
+    }
+    table.put_item(Item=todo)
+    return response(201, {"message": "To-Do created successfully", "todo": todo})
+
+def get_todo_by_id(todo_id):
+    """Retrieves a to-do item by ID."""
+    if not todo_id:
+        return response(400, {"message": "ID parameter is required"})
+    
+    result = table.get_item(Key={"id": todo_id})
+    item = result.get("Item")
+    
+    if not item:
+        return response(404, {"message": f"To-Do with ID {todo_id} not found"})
+    
+    return response(200, item)
+
+def get_all_todos():
+    """Retrieves all to-do items."""
+    result = table.scan()
+    return response(200, {"todos": result.get("Items", [])})
+
+def update_todo(todo_id, data):
+    """Updates an existing to-do item by ID with partial updates."""
+    if not todo_id:
+        return response(400, {"message": "ID parameter is required"})
+    
+    update_expression = []
+    expression_attribute_values = {}
+    expression_attribute_names = {}
+
+    if "title" in data:
+        update_expression.append("title = :title")
+        expression_attribute_values[":title"] = data["title"]
+    
+    if "status" in data:
+        update_expression.append("#status = :status")  # Using alias for reserved keyword
+        expression_attribute_values[":status"] = data["status"]
+        expression_attribute_names["#status"] = "status"  # Defining alias
+
+    if "description" in data:
+        update_expression.append("description = :description")
+        expression_attribute_values[":description"] = data["description"]
+
+    if not update_expression:
+        return response(400, {"message": "At least one field (title, status, description) is required for update"})
+
+    update_expression.append("updatedAt = :updatedAt")
+    expression_attribute_values[":updatedAt"] = datetime.datetime.utcnow().isoformat()
+
+    update_query = "SET " + ", ".join(update_expression)
+
+    result = table.update_item(
+        Key={"id": todo_id},
+        UpdateExpression=update_query,
+        ExpressionAttributeNames=expression_attribute_names if expression_attribute_names else None,
+        ExpressionAttributeValues=expression_attribute_values,
+        ReturnValues="ALL_NEW",
+    )
+
+    return response(200, {"message": "To-Do updated successfully", "todo": result.get("Attributes", {})})
+
+def delete_todo_by_id(todo_id):
+    """Deletes a to-do item by ID."""
+    if not todo_id:
+        return response(400, {"message": "ID parameter is required"})
+
+    table.delete_item(Key={"id": todo_id})
+    return response(200, {"message": f"To-Do with ID {todo_id} deleted successfully"})
+
+def response(status_code, body):
+    """Formats API Gateway response with CORS headers."""
+    return {
+        "statusCode": status_code,
+        "body": json.dumps(body),
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+        },
+    }
